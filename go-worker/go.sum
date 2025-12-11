@@ -1,0 +1,6 @@
+github.com/rabbitmq/amqp091-go v1.9.0 h1:qrQSdaDsZqqjwAVRQQdaDM7xsKgroupbNXxkqR+2xQ=
+github.com/rabbitmq/amqp091-go v1.9.0/go.mod h1:+E/eQBAyXiKT73mTJg0V+R/r6u5x0wvG9bRPFwWA=
+github.com/mongodb/mongo-go-driver v1.13.1 h1:bAJB7vEMWkPD9H4JhTGlWdEdQNnYNdXlYqI6dE6V4=
+github.com/mongodb/mongo-go-driver v1.13.1/go.mod h1:...
+github.com/joho/godotenv v1.5.1 h1:7eLL/wHHfELn5jZMOB85pUr5au3SNm13xMlMdBf0Wg=
+github.com/joho/godotenv v1.5.1/go.mod h1:f4LDr5Voq0i2e/R5DDNOoa2zzDfwtkZa49BEAfY6s=
