@@ -18,6 +18,7 @@ locations = [
     {'name': 'Brasília', 'lat': -15.7975, 'lon': -47.8919},
 ]
 
+
 def get_weather_data(lat, lon):
     """Fetch weather data from Open-Meteo API"""
     try:
@@ -34,6 +35,7 @@ def get_weather_data(lat, lon):
         print(f"Error fetching weather: {e}")
         return None
 
+
 def weather_code_to_description(code):
     """Convert WMO weather code to description"""
     descriptions = {
@@ -49,33 +51,35 @@ def weather_code_to_description(code):
     }
     return descriptions.get(code, 'Unknown')
 
+
 def send_to_queue(weather_data):
     """Send weather data to RabbitMQ"""
     try:
         connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
         channel = connection.channel()
         channel.queue_declare(queue='weather_queue', durable=True)
-        
+
         channel.basic_publish(
             exchange='',
             routing_key='weather_queue',
             body=json.dumps(weather_data),
             properties=pika.BasicProperties(delivery_mode=2)
         )
-        
+
         connection.close()
         print(f"✅ Sent: {weather_data['location']}")
     except Exception as e:
         print(f"❌ Error sending to queue: {e}")
 
+
 def main():
     print("🌦️  GDASH Weather Collector Started")
     print(f"Collecting from {len(locations)} locations every hour...")
-    
+
     while True:
         for location in locations:
             weather = get_weather_data(location['lat'], location['lon'])
-            
+
             if weather and 'current' in weather:
                 current = weather['current']
                 data = {
@@ -87,9 +91,10 @@ def main():
                     'timestamp': datetime.now().isoformat()
                 }
                 send_to_queue(data)
-        
+
         print(f"⏳ Next collection in 1 hour...")
         time.sleep(3600)  # 1 hour
+
 
 if __name__ == '__main__':
     main()

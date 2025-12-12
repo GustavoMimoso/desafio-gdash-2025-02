@@ -1,18 +1,16 @@
-import { Controller, Get, UseGuards, Query } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Query } from '@nestjs/common';
 import { WeatherService } from './weather.service';
 
-@ApiTags('weather')
-@ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'))
 @Controller('weather')
 export class WeatherController {
-  constructor(private weatherService: WeatherService) {}
+  constructor(private readonly weatherService: WeatherService) {}
 
   @Get()
-  async findAll(@Query('limit') limit = 100) {
-    return this.weatherService.findAll(limit);
+  async getWeather(
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 10,
+  ) {
+    return this.weatherService.getWeather(page, limit);
   }
 
   @Get('insights')
