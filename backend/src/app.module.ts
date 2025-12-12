@@ -7,7 +7,7 @@ import { WeatherModule } from './weather/weather.module';
 import { ExportModule } from './export/export.module';
 import { HealthModule } from './health/health.module';
 import { CatalogsModule } from './catalogs/catalogs.module';
-
+import { ProductsModule } from './products/products.module';
 
 @Module({
   imports: [
@@ -28,6 +28,7 @@ import { CatalogsModule } from './catalogs/catalogs.module';
     ExportModule,
     HealthModule,
     CatalogsModule,
+    ProductsModule,
   ],
 })
 export class AppModule {}
