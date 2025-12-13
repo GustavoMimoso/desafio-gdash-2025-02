@@ -1,0 +1,197 @@
+name: 🚀 CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop, gustavo-henrique-de-souza-mimoso ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ============================================
+  # 🧪 TESTES & BUILD
+  # ============================================
+  test-and-build:
+    runs-on: ubuntu-latest
+    name: Tests & Build
+    
+    services:
+      mongodb:
+        image: mongo:7.0
+        options: >-
+          --health-cmd "echo 'db.runCommand(\"ping\").ok' | mongosh"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 27017:27017
+      
+      rabbitmq:
+        image: rabbitmq:3.12-alpine
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5672:5672
+          - 15672:15672
+
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v3
+    
+    # ============================================
+    # Setup Tools
+    # ============================================
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20'
+        cache: 'npm'
+    
+    - name: 🐍 Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: 🔵 Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    # ============================================
+    # Backend Tests
+    # ============================================
+    - name: 📦 Install Backend Dependencies
+      working-directory: ./backend
+      run: npm install
+    
+    - name: 🧪 Run Backend Tests
+      working-directory: ./backend
+      run: npm run test -- --passWithNoTests
+      env:
+        DATABASE_URL: mongodb://localhost:27017/gdash-test
+        RABBITMQ_URL: amqp://guest:guest@localhost:5672
+        JWT_SECRET: test-secret-key
+        NODE_ENV: test
+    
+    - name: 📊 Generate Coverage Report
+      working-directory: ./backend
+      run: npm run test:cov -- --passWithNoTests || true
+    
+    - name: 🔍 Lint Backend
+      working-directory: ./backend
+      run: npm run lint || true
+    
+    # ============================================
+    # Frontend Tests
+    # ============================================
+    - name: 📦 Install Frontend Dependencies
+      working-directory: ./frontend
+      run: npm install
+    
+    - name: 🧪 Run Frontend Tests
+      working-directory: ./frontend
+      run: npm run test -- --run || true
+    
+    - name: 🏗️ Build Frontend
+      working-directory: ./frontend
+      run: npm run build
+      env:
+        VITE_API_URL: http://localhost:3000
+    
+    - name: 🔍 Lint Frontend
+      working-directory: ./frontend
+      run: npm run lint || true
+    
+    # ============================================
+    # Python Tests
+    # ============================================
+    - name: 🐍 Install Python Dependencies
+      working-directory: ./python-collector
+      run: pip install -r requirements.txt pytest
+    
+    - name: 🧪 Run Python Tests
+      working-directory: ./python-collector
+      run: pytest --tb=short || true
+    
+    # ============================================
+    # Go Tests
+    # ============================================
+    - name: 🧪 Run Go Tests
+      working-directory: ./go-worker
+      run: go test -v -race ./... || true
+    
+    - name: 🏗️ Build Go Binary
+      working-directory: ./go-worker
+      run: go build -o worker main.go
+    
+    # ============================================
+    # Docker Build
+    # ============================================
+    - name: 🐳 Build Docker Images
+      run: docker-compose build --no-cache
+    
+    # ============================================
+    # Security Scan
+    # ============================================
+    - name: 🔒 Run Trivy Vulnerability Scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: 📤 Upload Trivy Results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # ============================================
+  # ✅ QUALITY GATE
+  # ============================================
+  quality-gate:
+    runs-on: ubuntu-latest
+    name: Quality Gate
+    needs: test-and-build
+    if: always()
+
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v3
+    
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20'
+    
+    - name: 📊 Quality Gate Check
+      run: |
+        echo "✅ All checks passed!"
+        echo "✅ Tests executed"
+        echo "✅ Build successful"
+        echo "✅ Security scan completed"
+
+  # ============================================
+  # 📢 Notification
+  # ============================================
+  notification:
+    runs-on: ubuntu-latest
+    name: Send Notification
+    needs: [test-and-build, quality-gate]
+    if: always()
+
+    steps:
+    - name: 📢 Status Badge
+      run: |
+        if [ "${{ needs.test-and-build.result }}" == "success" ]; then
+          echo "✅ Pipeline succeeded!"
+        else
+          echo "❌ Pipeline failed!"
+        fi

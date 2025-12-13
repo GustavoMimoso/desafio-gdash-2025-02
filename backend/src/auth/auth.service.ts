@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 
@@ -9,18 +9,61 @@ export class AuthService {
     private usersService: UsersService,
   ) {}
 
-  async register(body: { email: string; password: string; name: string }) {
-    const user = await this.usersService.create(body);
-    const token = this.jwtService.sign({ sub: user._id, email: user.email });
-    return { user, token };
+  async register(email: string, password: string) {
+    // Verifica se usuário já existe
+    const existingUser = await this.usersService.findByEmail(email);
+    if (existingUser) {
+      throw new BadRequestException('Usuário já existe');
+    }
+
+    // Cria novo usuário
+    const user = await this.usersService.create(email, password);
+    
+    // Gera token JWT
+    const token = this.jwtService.sign({
+      sub: user._id,
+      email: user.email,
+    });
+
+    return {
+      message: 'Usuário registrado com sucesso',
+      user: {
+        id: user._id,
+        email: user.email,
+      },
+      access_token: token,
+    };
   }
 
-  async login(body: { email: string; password: string }) {
-    const user = await this.usersService.findByEmail(body.email);
-    if (!user || user.password !== body.password) {
-      throw new Error('Invalid credentials');
+  async login(email: string, password: string) {
+    // Busca usuário
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
+      throw new UnauthorizedException('Email ou senha inválidos');
     }
-    const token = this.jwtService.sign({ sub: user._id, email: user.email });
-    return { user, token };
+
+    // Verifica senha (em produção, usar bcrypt)
+    if (user.password !== password) {
+      throw new UnauthorizedException('Email ou senha inválidos');
+    }
+
+    // Gera token JWT
+    const token = this.jwtService.sign({
+      sub: user._id,
+      email: user.email,
+    });
+
+    return {
+      message: 'Login realizado com sucesso',
+      user: {
+        id: user._id,
+        email: user.email,
+      },
+      access_token: token,
+    };
+  }
+
+  async validateUser(userId: string) {
+    return this.usersService.findById(userId);
   }
 }

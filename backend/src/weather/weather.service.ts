@@ -9,32 +9,51 @@ export class WeatherService {
     @InjectModel(Weather.name) private weatherModel: Model<Weather>,
   ) {}
 
-  async findAll(limit: number) {
-    return this.weatherModel.find().limit(limit).sort({ timestamp: -1 });
+  async getWeather(page: number = 1, limit: number = 10) {
+    const skip = (page - 1) * limit;
+    const data = await this.weatherModel
+      .find()
+      .skip(skip)
+      .limit(limit)
+      .sort({ timestamp: -1 })
+      .lean();
+
+    const total = await this.weatherModel.countDocuments();
+
+    return {
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async getInsights() {
-    const data = await this.weatherModel.find().sort({ timestamp: -1 }).limit(30);
-    const temps = data.map(d => d.temperature);
-    const avgTemp = temps.reduce((a, b) => a + b, 0) / temps.length;
+    const data = await this.weatherModel.find().sort({ timestamp: -1 }).limit(100);
+
+    if (!data.length) {
+      return {
+        message: 'Sem dados climáticos ainda',
+        avgTemp: 0,
+        maxTemp: 0,
+        minTemp: 0,
+      };
+    }
+
+    const temps = data.map((d: any) => d.temperature || 0);
+    const avgTemp = (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(2);
     const maxTemp = Math.max(...temps);
     const minTemp = Math.min(...temps);
 
     return {
-      averageTemperature: avgTemp.toFixed(2),
-      maxTemperature: maxTemp,
-      minTemperature: minTemp,
+      avgTemp: parseFloat(avgTemp),
+      maxTemp,
+      minTemp,
+      lastUpdate: data[0].timestamp,
       totalRecords: data.length,
-      insights: [
-        `Average temperature: ${avgTemp.toFixed(2)}°C`,
-        `Maximum recorded: ${maxTemp}°C`,
-        `Minimum recorded: ${minTemp}°C`,
-      ],
     };
-  }
-
-  async create(data: any) {
-    const weather = new this.weatherModel(data);
-    return weather.save();
   }
 }

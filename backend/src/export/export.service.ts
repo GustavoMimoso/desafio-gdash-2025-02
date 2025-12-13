@@ -1,28 +1,34 @@
 import { Injectable } from '@nestjs/common';
-import * as XLSX from 'xlsx';
-import { parse } from 'fast-csv';
-import { WeatherService } from '../weather/weather.service';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { Weather } from '../weather/schemas/weather.schema';
 
 @Injectable()
 export class ExportService {
-  constructor(private weatherService: WeatherService) {}
+  constructor(@InjectModel(Weather.name) private weatherModel: Model<Weather>) {}
 
-  async exportCSV() {
-    const data = await this.weatherService.findAll(1000);
-    let csv = 'Location,Temperature,Humidity,WindSpeed,Description,Timestamp\n';
+  async generateCsv(): Promise<string> {
+    const data = await this.weatherModel.find().lean();
     
-    data.forEach((item: any) => {
-      csv += `${item.location},${item.temperature},${item.humidity},${item.windSpeed},"${item.description}",${item.timestamp}\n`;
-    });
+    if (!data.length) return 'Sem dados para exportar';
 
+    const headers = ['Data', 'Temperatura (°C)', 'Umidade (%)', 'Pressão (mb)', 'Vento (km/h)', 'Localização'];
+    const rows = data.map((d: any) => [
+      new Date(d.timestamp).toLocaleString('pt-BR'),
+      d.temperature,
+      d.humidity,
+      d.pressure,
+      d.windSpeed,
+      d.location || 'N/A',
+    ]);
+
+    const csv = [headers, ...rows].map((row) => row.join(',')).join('\n');
     return csv;
   }
 
-  async exportXLSX() {
-    const data = await this.weatherService.findAll(1000);
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Weather');
-    return XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
+  async generateXlsx(): Promise<Buffer> {
+    // Para XLSX, seria necessário instalar 'xlsx' package
+    // Por enquanto retornamos um erro
+    throw new Error('XLSX export requer pacote adicional. Instale com: npm install xlsx');
   }
 }

@@ -9,86 +9,39 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type WeatherData struct {
-	Location    string    `json:"location" bson:"location"`
-	Temperature float64   `json:"temperature" bson:"temperature"`
+	Temperature string    `json:"temperature" bson:"temperature"`
 	Humidity    int       `json:"humidity" bson:"humidity"`
-	WindSpeed   float64   `json:"windSpeed" bson:"windSpeed"`
-	Description string    `json:"description" bson:"description"`
+	Pressure    int       `json:"pressure" bson:"pressure"`
+	WindSpeed   int       `json:"windSpeed" bson:"windSpeed"`
+	Location    string    `json:"location" bson:"location"`
 	Timestamp   time.Time `json:"timestamp" bson:"timestamp"`
-}
-
-var mongoClient *mongo.Client
-
-func init() {
-	godotenv.Load()
-}
-
-func connectMongo() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		dbURL = "mongodb://admin:admin123@mongodb:27017/gdash?authSource=admin"
-	}
-
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(dbURL))
-	if err != nil {
-		return err
-	}
-
-	mongoClient = client
-	return mongoClient.Ping(ctx, nil)
-}
-
-func saveWeatherData(data WeatherData) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	collection := mongoClient.Database("gdash").Collection("weather")
-	_, err := collection.InsertOne(ctx, data)
-	return err
+	Description string    `json:"description" bson:"description"`
 }
 
 func main() {
-	log.Println("🌦️ GDASH Go Worker Started")
+	fmt.Println("🚀 GDASH Go Worker iniciado")
 
-	// Connect to MongoDB
-	if err := connectMongo(); err != nil {
-		log.Fatalf("MongoDB connection failed: %v", err)
-	}
-	defer mongoClient.Disconnect(context.Background())
-	log.Println("✅ MongoDB connected")
-
-	// Connect to RabbitMQ
-	rabbitmqURL := os.Getenv("RABBITMQ_URL")
-	if rabbitmqURL == "" {
-		rabbitmqURL = "amqp://admin:admin123@rabbitmq:5672/"
-	}
-
-	conn, err := amqp.Dial(rabbitmqURL)
+	// Conecta ao RabbitMQ
+	conn, err := amqp.Dial(os.Getenv("RABBITMQ_URL"))
 	if err != nil {
-		log.Fatalf("RabbitMQ connection failed: %v", err)
+		log.Fatalf("❌ Erro ao conectar RabbitMQ: %v", err)
 	}
 	defer conn.Close()
-	log.Println("✅ RabbitMQ connected")
 
-	// Create channel
 	ch, err := conn.Channel()
 	if err != nil {
-		log.Fatalf("Channel creation failed: %v", err)
+		log.Fatalf("❌ Erro ao abrir channel: %v", err)
 	}
 	defer ch.Close()
 
-	// Declare queue
+	// Declara fila
 	q, err := ch.QueueDeclare(
-		"weather_queue",
+		"weather_data",
 		true,
 		false,
 		false,
@@ -96,13 +49,29 @@ func main() {
 		nil,
 	)
 	if err != nil {
-		log.Fatalf("Queue declaration failed: %v", err)
+		log.Fatalf("❌ Erro ao declarar fila: %v", err)
 	}
 
-	// Set QoS
-	ch.Qos(1, 0, false)
+	// Conecta ao MongoDB
+	mongoCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	// Consume messages
+	mongoClient, err := mongo.Connect(mongoCtx, options.Client().ApplyURI(os.Getenv("DATABASE_URL")))
+	if err != nil {
+		log.Fatalf("❌ Erro ao conectar MongoDB: %v", err)
+	}
+	defer mongoClient.Disconnect(context.Background())
+
+	// Verifica conexão MongoDB
+	if err := mongoClient.Ping(context.Background(), nil); err != nil {
+		log.Fatalf("❌ MongoDB não respondeu: %v", err)
+	}
+
+	fmt.Println("✅ Conectado ao MongoDB e RabbitMQ")
+
+	collection := mongoClient.Database("gdash").Collection("weathers")
+
+	// Consome mensagens
 	msgs, err := ch.Consume(
 		q.Name,
 		"",
@@ -113,34 +82,32 @@ func main() {
 		nil,
 	)
 	if err != nil {
-		log.Fatalf("Consume failed: %v", err)
+		log.Fatalf("❌ Erro ao registrar consumidor: %v", err)
 	}
 
-	log.Println("👂 Listening for messages...")
+	fmt.Println("⏳ Aguardando mensagens...")
 
-	for msg := range msgs {
-		var data WeatherData
-		if err := json.Unmarshal(msg.Body, &data); err != nil {
-			log.Printf("❌ Error unmarshaling: %v", err)
-			msg.Nack(false, true)
+	for d := range msgs {
+		var weather WeatherData
+		err := json.Unmarshal(d.Body, &weather)
+		if err != nil {
+			fmt.Printf("❌ Erro ao decodificar: %v\n", err)
+			d.Nack(false, true) // Requeue
 			continue
 		}
 
-		// Parse timestamp
-		if t, err := time.Parse(time.RFC3339, data.Timestamp.String()); err == nil {
-			data.Timestamp = t
-		} else {
-			data.Timestamp = time.Now()
-		}
+		// Salva no MongoDB
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		result, err := collection.InsertOne(ctx, weather)
+		cancel()
 
-		// Save to MongoDB
-		if err := saveWeatherData(data); err != nil {
-			log.Printf("❌ Error saving: %v", err)
-			msg.Nack(false, true)
+		if err != nil {
+			fmt.Printf("❌ Erro ao salvar no MongoDB: %v\n", err)
+			d.Nack(false, true) // Requeue
 			continue
 		}
 
-		log.Printf("✅ Saved: %s - %.1f°C", data.Location, data.Temperature)
-		msg.Ack(false)
+		fmt.Printf("✅ Dado climático salvo: %v | %s\n", result.InsertedID, weather.Location)
+		d.Ack(false)
 	}
 }
